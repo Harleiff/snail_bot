@@ -1,0 +1,123 @@
+<!-- <?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+
+    <ros2_control name="GazeboSystem" type="system">
+        <hardware>
+            <plugin>gazebo_ros2_control/GazeboSystem</plugin>
+        </hardware>
+        <joint name="left_wheel_joint">
+            <command_interface name="velocity">
+                <param name="min">-10</param>
+                <param name="max">10</param>
+            </command_interface>
+            <state_interface name="velocity"/>
+            <state_interface name="position"/>
+        </joint>
+        <joint name="right_wheel_joint">
+            <command_interface name="velocity">
+                <param name="min">-10</param>
+                <param name="max">10</param>
+            </command_interface>
+            <state_interface name="velocity"/>
+            <state_interface name="position"/>
+        </joint>
+    </ros2_control>
+
+    <gazebo>
+        <plugin name="gazebo_ros2_control" filename="libgazebo_ros2_control.so">
+            <parameters>$(find snail_bot)/config/my_controllers.yaml</parameters>
+        </plugin>
+    </gazebo>
+
+</robot> -->
+
+import os
+
+from ament_index_python.packages import get_package_share_directory
+
+from launch import LaunchDescription
+from launch.actions import IncludeLaunchDescription, RegisterEventHandler
+from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch.event_handlers import OnProcessExit
+
+from launch_ros.actions import Node
+
+def generate_launch_description():
+    package_name = 'snail_bot'  # <--- CHANGE ME
+    
+    # Get the path to the package
+    pkg_path = get_package_share_directory(package_name)
+    
+    # Include the robot_state_publisher launch file
+    rsp = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource([os.path.join(
+            pkg_path, 'launch', 'rsp.launch.py'
+        )]), launch_arguments={'use_sim_time': 'true'}.items()
+    )
+
+    # Include the Gazebo launch file
+    gazebo = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource([os.path.join(
+            get_package_share_directory('gazebo_ros'), 'launch', 'gazebo.launch.py')]),
+    )
+
+    # Spawn entity
+    spawn_entity = Node(
+        package='gazebo_ros', 
+        executable='spawn_entity.py',
+        arguments=['-topic', 'robot_description',
+                   '-entity', 'snail_bot'],
+        output='screen'
+    )
+    
+    # Launch controller manager
+    controller_manager = Node(
+        package="controller_manager",
+        executable="ros2_control_node",
+        parameters=[
+            {"use_sim_time": True},
+            os.path.join(pkg_path, "config", "my_controllers.yaml")
+        ],
+        output="screen",
+    )
+    
+    # Spawn controllers
+    spawn_diff_controller = Node(
+        package='controller_manager',
+        executable='spawner',
+        arguments=['diff_cont'],
+        output='screen',
+    )
+    
+    spawn_joint_broadcaster = Node(
+        package='controller_manager',
+        executable='spawner',
+        arguments=['joint_broad'],
+        output='screen',
+    )
+    
+    # Make sure controllers are spawned after the entity is
+    diff_spawner_event = RegisterEventHandler(
+        event_handler=OnProcessExit(
+            target_action=spawn_entity,
+            on_exit=[spawn_diff_controller],
+        )
+    )
+    
+    joint_broadcaster_event = RegisterEventHandler(
+        event_handler=OnProcessExit(
+            target_action=spawn_entity,
+            on_exit=[spawn_joint_broadcaster],
+        )
+    )
+
+    # Launch them all!
+    return LaunchDescription([
+        rsp,
+        gazebo,
+        spawn_entity,
+        controller_manager,
+        diff_spawner_event,
+        joint_broadcaster_event,
+    ])

@@ -1,47 +1,116 @@
+# import os
+
+# from ament_index_python.packages import get_package_share_directory
+
+# from launch import LaunchDescription
+# from launch.actions import IncludeLaunchDescription
+# from launch.launch_description_sources import PythonLaunchDescriptionSource
+
+# from launch_ros.actions import Node
+
+# def generate_launch_description():
+
+#     # Include the robot_state_publisher launch file, provided by our own package. Force sim time to be enabled
+#     # !!! MAKE SURE YOU SET THE PACKAGE NAME CORRECTLY !!!
+
+#     package_name='snail_bot' #<--- CHANGE ME
+
+#     rsp = IncludeLaunchDescription(
+#                 PythonLaunchDescriptionSource([os.path.join(
+#                     get_package_share_directory(package_name),'launch','rsp.launch.py'
+#                 )]), launch_arguments={'use_sim_time': 'true'}.items()
+#     )
+
+#     # Include the Gazebo launch file, provided by the gazebo_ros package
+#     gazebo = IncludeLaunchDescription(
+#                 PythonLaunchDescriptionSource([os.path.join(
+#                     get_package_share_directory('gazebo_ros'), 'launch', 'gazebo.launch.py')]),
+#              )
+
+#     # Run the spawner node from the gazebo_ros package. The entity name doesn't really matter if you only have a single robot.
+#     spawn_entity = Node(package='gazebo_ros', executable='spawn_entity.py',
+#                         arguments=['-topic', 'robot_description',
+#                                    '-entity', 'snail_bot'],
+#                         output='screen')
+
+#     # Launch them all!
+#     return LaunchDescription([
+#         rsp,
+#         gazebo,
+#         spawn_entity,
+#     ])
+
+
 import os
 
 from ament_index_python.packages import get_package_share_directory
 
-
 from launch import LaunchDescription
-from launch.actions import IncludeLaunchDescription
+from launch.actions import IncludeLaunchDescription, ExecuteProcess
 from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch.substitutions import LaunchConfiguration
 
 from launch_ros.actions import Node
 
-
-
 def generate_launch_description():
-
-
-    # Include the robot_state_publisher launch file, provided by our own package. Force sim time to be enabled
-    # !!! MAKE SURE YOU SET THE PACKAGE NAME CORRECTLY !!!
-
-    package_name='snail_bot' #<--- CHANGE ME
-
+    package_name = 'snail_bot'
+    
+    # Get the path to the package
+    pkg_path = get_package_share_directory(package_name)
+    
+    # Use LaunchConfiguration for the world parameter
+    world = LaunchConfiguration('world')
+    
+    # Include the robot_state_publisher launch file
     rsp = IncludeLaunchDescription(
-                PythonLaunchDescriptionSource([os.path.join(
-                    get_package_share_directory(package_name),'launch','rsp.launch.py'
-                )]), launch_arguments={'use_sim_time': 'true'}.items()
+        PythonLaunchDescriptionSource([os.path.join(
+            pkg_path, 'launch', 'rsp.launch.py'
+        )]), launch_arguments={'use_sim_time': 'true'}.items()
     )
 
-    # Include the Gazebo launch file, provided by the gazebo_ros package
+    # Include the Gazebo launch file
     gazebo = IncludeLaunchDescription(
-                PythonLaunchDescriptionSource([os.path.join(
-                    get_package_share_directory('gazebo_ros'), 'launch', 'gazebo.launch.py')]),
-             )
+        PythonLaunchDescriptionSource([os.path.join(
+            get_package_share_directory('gazebo_ros'), 'launch', 'gazebo.launch.py')]),
+        launch_arguments={'world': world}.items()
+    )
 
-    # Run the spawner node from the gazebo_ros package. The entity name doesn't really matter if you only have a single robot.
-    spawn_entity = Node(package='gazebo_ros', executable='spawn_entity.py',
-                        arguments=['-topic', 'robot_description',
-                                   '-entity', 'snail_bot'],
-                        output='screen')
-
-
+    # Spawn entity
+    spawn_entity = Node(
+        package='gazebo_ros', 
+        executable='spawn_entity.py',
+        arguments=['-topic', 'robot_description',
+                   '-entity', 'snail_bot'],
+        output='screen'
+    )
+    
+    # Delay to ensure the entity is fully spawned
+    delay_after_spawn = ExecuteProcess(
+        cmd=['sleep', '5'],
+        output='screen'
+    )
+    
+    # Spawn controllers directly, without event handlers
+    spawn_diff_controller = Node(
+        package='controller_manager',
+        executable='spawner',
+        arguments=['diff_cont', '--controller-manager', '/controller_manager'],
+        output='screen',
+    )
+    
+    spawn_joint_broadcaster = Node(
+        package='controller_manager',
+        executable='spawner',
+        arguments=['joint_broad', '--controller-manager', '/controller_manager'],
+        output='screen',
+    )
 
     # Launch them all!
     return LaunchDescription([
         rsp,
         gazebo,
         spawn_entity,
+        delay_after_spawn,  # Add a delay
+        spawn_diff_controller,
+        spawn_joint_broadcaster,
     ])
